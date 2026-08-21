@@ -2,749 +2,466 @@
 
 ## Overview
 
-This repository contains an empirical study of **daily cryptocurrency volatility forecasting** using classical conditional-volatility models and deep-learning models.
-
-The project compares:
-
-- **GARCH(1,1)**
-- **GJR-GARCH(1,1)**
-- **EGARCH(1,1)**
-- **MLP**
-- **GRU**
-- **LSTM**
-- Simple volatility baselines
-
-across four major crypto assets:
+This repository contains a daily cryptocurrency volatility-forecasting study comparing classical conditional-volatility models with deep-learning sequence models across:
 
 - Bitcoin (`BTCUSDT`)
 - Ethereum (`ETHUSDT`)
 - Solana (`SOLUSDT`)
 - XRP (`XRPUSDT`)
 
-The core research question is:
+The main research question is:
 
-> **Do deep-learning models improve one-day-ahead cryptocurrency volatility forecasts relative to ARCH-family models and simple historical-volatility baselines when all methods are evaluated on the same data, target dates and loss functions?**
+> **Do deep-learning models improve one-day-ahead cryptocurrency volatility forecasts relative to ARCH-family models when all methods are evaluated on the same daily data, forecast dates and loss functions?**
 
-A second robustness experiment tests whether the conclusion changes when volatility is defined using a **30-day rolling standard deviation of daily returns** instead of squared daily returns.
+The final model set is:
 
----
+- GARCH(1,1)
+- GJR-GARCH(1,1)
+- EGARCH(1,1)
+- MLP 30D
+- GRU 7D
+- LSTM 14D
 
-## Project Motivation
-
-Cryptocurrency returns exhibit several features commonly associated with financial volatility:
-
-- volatility clustering;
-- heavy-tailed return distributions;
-- rapidly changing market regimes;
-- large jumps and extreme observations;
-- nonlinear temporal dependence.
-
-These characteristics make crypto a natural setting for comparing traditional econometric volatility models with neural-network approaches.
-
-Rather than assuming that a more complex model should outperform a classical model, this project evaluates all model families under a common out-of-sample framework.
+QLIKE is the primary volatility-forecasting loss. MAE and RMSE are reported as complementary metrics.
 
 ---
 
-# Data
+## Data
 
-## Source
+Daily OHLCV candles are pulled from the public Binance market-data endpoint.
 
-Daily OHLCV market data is collected from the public **Binance** market-data endpoint.
+Approximate source histories:
 
-Assets:
+| Asset | Start | End | Daily rows |
+|---|---|---|---:|
+| BTC | 2017-08-17 | 2026-08-01 | 3,272 |
+| ETH | 2017-08-17 | 2026-08-01 | 3,272 |
+| XRP | 2018-05-04 | 2026-08-01 | 3,012 |
+| SOL | 2020-08-11 | 2026-08-01 | 2,182 |
 
-| Asset | Trading Pair |
-|---|---|
-| Bitcoin | BTCUSDT |
-| Ethereum | ETHUSDT |
-| Solana | SOLUSDT |
-| XRP | XRPUSDT |
-
-The data is stored as one daily observation per asset.
-
-Approximate available history in the project dataset:
-
-| Asset | Start |
-|---|---|
-| BTC | 2017-08 |
-| ETH | 2017-08 |
-| XRP | 2018-05 |
-| SOL | 2020-08 |
-
-The common project data extends through **2026-08-01**.
+The project originally considered intraday volatility construction, but the final research design is fully **daily** so that all model families are evaluated under one consistent framework.
 
 ---
 
-# Return Definition
+## Primary Forecasting Target
 
-Daily close-to-close log returns are defined as
+Daily close-to-close log return:
 
-\[
-r_t = \ln\left(\frac{C_t}{C_{t-1}}\right)
-\]
+```text
+r_t = log(C_t / C_{t-1})
+```
 
-where \(C_t\) is the daily closing price.
+Primary daily variance proxy:
 
-Returns are calculated only across consecutive calendar days.
-
----
-
-# Volatility Definitions
-
-The project contains two separate experiments.
-
-## 1. Primary Volatility Target — Squared Daily Return
-
-The primary daily variance proxy is
-
-\[
+```text
 RV_t = r_t^2
-\]
+```
 
-with corresponding volatility proxy
+The deep-learning target is:
 
-\[
-|r_t|.
-\]
+```text
+log(RV_t + epsilon)
+```
 
-For deep-learning models, the modeled target is
-
-\[
-\log(RV_t + \epsilon).
-\]
-
-Predictions are exponentiated back to the variance scale before MAE, RMSE and QLIKE are calculated.
-
-This experiment asks:
-
-> **How well can the models forecast the next day's variance proxy?**
+DL predictions are exponentiated back to the variance scale before evaluation.
 
 ---
 
-## 2. Robustness Target — 30-Day Rolling Historical Volatility
+## Temporal Split
 
-The alternative volatility definition is
+All models follow the same chronological split, assigned by **forecast target date**:
 
-\[
-HV_{30,t}
-=
-\operatorname{Std}(r_{t-29},\ldots,r_t),
-\]
-
-using the sample standard deviation (`ddof=1`).
-
-The variance-scale target is
-
-\[
-HV^2_{30,t},
-\]
-
-and the deep-learning target is
-
-\[
-\log(HV^2_{30,t}+\epsilon).
-\]
-
-This experiment asks:
-
-> **How well can the models forecast the next day's updated 30-day historical-variance state?**
-
-Because adjacent 30-day windows share 29 of 30 observations, this target is substantially smoother than \(r_t^2\).
-
-**Metric magnitudes should therefore not be compared directly across the two target definitions.** Model rankings are compared within each target definition.
-
----
-
-# Experimental Design
-
-All models use the same temporal split.
-
-| Split | Target Dates |
+| Split | Target dates |
 |---|---|
-| Train | Through 2024-07-31 |
+| Train | through 2024-07-31 |
 | Validation | 2024-08-01 to 2025-07-31 |
 | Test | 2025-08-01 to 2026-07-31 |
 
-The split is assigned by **forecast target date**, not by feature date.
+Validation and Test each contain 365 daily target dates per asset.
 
-This ensures a sequence ending on day \(t\) forecasts day \(t+1\).
-
-## Current reporting status
-
-The results documented below are **validation-period results**.
-
-The held-out test period has intentionally remained untouched during:
-
-- feature development;
-- lookback selection;
-- architecture comparison;
-- ARCH specification comparison;
-- robustness analysis.
-
-For a paper-grade final performance estimate, the frozen specifications should be evaluated once on the held-out test period without further model selection.
+The Test period was kept unopened throughout feature engineering, lookback selection, architecture selection and robustness design. It was evaluated only in the final Train/Validation/Test notebook.
 
 ---
 
-# Deep-Learning Features
+## Exploratory Data Analysis
 
-The primary daily experiment uses seven features:
+The daily-return EDA supports the use of conditional-volatility models:
 
-1. `log_realized_variance`
-2. `daily_return`
-3. `absolute_daily_return`
-4. `high_low_range`
-5. `log_volume`
-6. `rv_mean_7d`
-7. `rv_mean_30d`
-
-For the rolling-30 robustness experiment, the variance-state features are replaced with:
-
-1. `log_rolling_30d_variance`
-2. `daily_return`
-3. `absolute_daily_return`
-4. `high_low_range`
-5. `log_volume`
-6. `rolling30_var_mean_7d`
-7. `rolling30_var_mean_30d`
-
-Rolling features require consecutive calendar observations.
-
-Missing observations required by a sequence are not imputed.
+- returns are stationary under ADF/KPSS diagnostics;
+- return distributions are strongly heavy-tailed;
+- full-sample excess kurtosis is approximately 15.8 for BTC, 12.0 for ETH, 8.3 for SOL and 18.8 for XRP;
+- squared and absolute returns display volatility clustering;
+- Student-t innovations are therefore used for the ARCH-family models.
 
 ---
 
-# Data Leakage Controls
+## Deep-Learning Features
 
-Several controls are applied throughout the project:
+The primary MLP, GRU and LSTM models use seven daily features:
 
-- sequences are constructed chronologically;
-- target date is always one day after sequence end;
-- feature scaling is fitted on **training data only**;
-- validation and test are transformed using the training scaler;
-- no future volatility observation enters a feature window;
-- test data is not used for lookback or model selection;
-- deep-learning training uses `shuffle=False`.
+```text
+log_realized_variance
+daily_return
+absolute_daily_return
+high_low_range
+log_volume
+rv_mean_7d
+rv_mean_30d
+```
 
----
+### Leakage control
 
-# Models
+A sequence ending on day `t` forecasts day `t+1`.
 
-## Baselines
+For example, a forecast for 10 August uses features only through 9 August. Therefore `rv_mean_7d` and `rv_mean_30d` used for that forecast also end on 9 August and do **not** contain the 10 August return.
 
-### Persistence
+Additional controls:
 
-For the primary target:
-
-\[
-\widehat{RV}_{t+1}=RV_t.
-\]
-
-For the rolling-30 target:
-
-\[
-\widehat{HV^2}_{30,t+1}=HV^2_{30,t}.
-\]
-
-### Historical means
-
-The project also evaluates:
-
-- 7-day mean variance;
-- 30-day mean variance.
-
-For the rolling-30 robustness experiment these are calculated from the rolling-30 variance state.
+- sequences require consecutive calendar days;
+- `target_date = sequence_end_date + 1 day` is enforced;
+- feature scalers are fitted on Train only;
+- global target scalers are fitted on Train only;
+- Validation/Test are never used to fit scalers;
+- final Train comparisons use a common target-date intersection across the selected DL lookbacks.
 
 ---
 
-# ARCH-Family Models
+## Deep-Learning Models
 
-Three classical volatility specifications are used:
+### MLP
+
+Standalone architecture:
+
+```text
+Flatten
+Dense(64, ReLU)
+Dropout(0.20)
+Dense(32, ReLU)
+Dropout(0.10)
+Dense(1)
+```
+
+### GRU
+
+```text
+GRU(32)
+Dropout(0.20)
+Dense(16, ReLU)
+Dropout(0.10)
+Dense(1)
+```
+
+### LSTM
+
+```text
+LSTM(32)
+Dropout(0.20)
+Dense(16, ReLU)
+Dropout(0.10)
+Dense(1)
+```
+
+All DL models optimize MSE on log variance with Adam and use early stopping, learning-rate reduction and restoration of the best validation weights.
+
+---
+
+## Why the DL Models Use Different Lookbacks
+
+BTC was used for architecture-specific lookback selection. Each architecture was evaluated with 7D, 14D and 30D input windows.
+
+| Architecture | Selected lookback | Best BTC validation QLIKE |
+|---|---:|---:|
+| MLP | 30D | 4.627 |
+| GRU | 7D | 4.925 |
+| LSTM | 14D | 4.739 |
+
+The lookback is treated as an **architecture-specific hyperparameter**, not as a parameter that must be identical across architectures.
+
+This is intentional: an MLP consumes a flattened fixed window, while GRU and LSTM explicitly model sequential state and may react differently to longer memory.
+
+Once selected, these lookbacks were frozen. They were **not re-selected** on ETH, SOL, XRP or later robustness exercises.
+
+---
+
+## ARCH-Family Models
+
+The econometric specifications are:
 
 - GARCH(1,1)
 - GJR-GARCH(1,1)
 - EGARCH(1,1)
 
-Student-t innovations are used to accommodate heavy-tailed crypto returns.
+All use:
 
-Daily returns are scaled by 100 during ARCH estimation and converted back to decimal-return variance for evaluation.
+```text
+mean = Constant
+innovation distribution = Student-t
+```
 
-## Forecasting Design
+Returns are scaled by 100 during estimation and forecast variance is converted back to decimal-return units before evaluation.
 
-Parameters are estimated using the training period.
-
-During validation:
-
-1. parameters remain fixed;
-2. observed returns sequentially update the volatility state;
-3. one-step-ahead conditional variance is produced.
-
-This provides genuine out-of-sample recursive volatility forecasts.
+For Validation and Test, model parameters are estimated using Train only, then held fixed while realized subsequent returns recursively update the conditional-volatility state.
 
 ---
 
-## ARCH Forecasts for the Rolling-30 Target
+## Global Multi-Asset Deep Learning
 
-A standard GARCH forecast is the conditional variance of the next return and is not directly equivalent to 30-day rolling variance.
+After the BTC lookbacks were frozen, MLP-30D, GRU-7D and LSTM-14D were trained on pooled BTC/ETH/SOL/XRP sequences.
 
-For the robustness experiment, the GARCH next-return mean and variance are analytically transformed into the expected next 30-day sample variance.
+The pooled setup uses:
 
-For 29 already-observed returns, let
-
-\[
-A=\sum_{i=1}^{29}r_i,
-\qquad
-B=\sum_{i=1}^{29}r_i^2.
-\]
-
-If the ARCH model forecasts next-return mean \(\mu\) and variance \(\sigma^2\), then
-
-\[
-E[s^2_{30}]
-=
-\frac{
-B+\sigma^2+\mu^2
--
-\frac{
-A^2+2A\mu+\sigma^2+\mu^2
-}{30}
-}{29}.
-\]
-
-The implementation includes an identity test showing that replacing the forecast distribution with the actual next return reconstructs the saved rolling-30 sample variance to floating-point precision.
-
----
-
-# Deep-Learning Models
-
-## MLP
-
-The standalone MLP uses:
-
-- sequence flattening;
-- Dense(64, ReLU);
-- Dropout;
-- Dense(32, ReLU);
-- Dropout;
-- linear output.
-
-## GRU
-
-The GRU model uses:
-
-- GRU(32);
-- Dropout;
-- Dense(16, ReLU);
-- Dropout;
-- linear output.
-
-## LSTM
-
-The LSTM model uses:
-
-- LSTM(32);
-- Dropout;
-- Dense(16, ReLU);
-- Dropout;
-- linear output.
-
-All models optimize MSE on the log-variance target using Adam.
-
-Training includes:
-
-- early stopping;
-- learning-rate reduction;
-- restoration of the best validation weights;
-- fixed random seeds.
-
----
-
-# Lookback Selection
-
-The primary BTC experiment tested:
-
-- 7 days
-- 14 days
-- 30 days
-
-for MLP, GRU and LSTM.
-
-The selected validation lookbacks were:
-
-| Architecture | Selected Lookback |
-|---|---:|
-| MLP | 30 days |
-| GRU | 7 days |
-| LSTM | 14 days |
-
-These specifications were **frozen** for the robustness experiment rather than re-tuned on the alternative volatility target.
-
----
-
-# Global Multi-Asset Models
-
-A second DL experiment pools BTC, ETH, SOL and XRP observations.
-
-The global models retain the selected architecture-specific lookbacks:
-
-- Global MLP — 30d
-- Global GRU — 7d
-- Global LSTM — 14d
-
-The pooled framework uses:
-
-- per-asset feature scalers fitted on training observations;
-- per-asset target scalers fitted on training targets;
+- shared neural-network parameters across assets;
 - one-hot asset identity;
-- shared model parameters across assets;
-- asset-level validation evaluation.
+- per-asset feature scalers fitted on Train only;
+- per-asset target scalers fitted on Train only;
+- asset-level evaluation after pooled training.
 
-A previously explored fusion/ensemble stage was not retained in the final pipeline because it did not provide consistent improvements over the standalone/global DL models.
-
----
-
-# Evaluation Metrics
-
-## Mean Absolute Error
-
-\[
-MAE=
-\frac{1}{N}
-\sum_{t=1}^{N}
-|y_t-\hat y_t|
-\]
-
-## Root Mean Squared Error
-
-\[
-RMSE=
-\sqrt{
-\frac{1}{N}
-\sum_{t=1}^{N}
-(y_t-\hat y_t)^2
-}
-\]
-
-## QLIKE
-
-The primary volatility-forecasting loss is
-
-\[
-QLIKE
-=
-\frac{1}{N}
-\sum_{t=1}^{N}
-\left[
-\frac{y_t}{\hat y_t}
--
-\log\left(
-\frac{y_t}{\hat y_t}
-\right)
--1
-\right].
-\]
-
-Lower values are better.
-
-QLIKE is calculated on the **variance scale**, not the log-variance scale.
+A fusion/ensemble stage was explored but was not retained because it did not consistently improve the core DL results.
 
 ---
 
-# Main Validation Results
+## Evaluation Metrics
 
-## Primary Target: Daily Squared Return Variance
-
-Best model by validation QLIKE:
-
-| Asset | Winning Model | QLIKE |
-|---|---|---:|
-| BTC | GARCH(1,1) | 1.865873 |
-| ETH | 30-Day Mean | 1.855280 |
-| SOL | GARCH(1,1) | 1.650260 |
-| XRP | EGARCH(1,1) | 1.914143 |
-
-For ETH, the 30-day historical-mean baseline narrowly outperforms GARCH(1,1):
-
-- 30-Day Mean: `1.855280`
-- GARCH(1,1): `1.855979`
-
-The two are effectively very close in QLIKE terms.
-
-### Best Global DL Models
-
-| Asset | Best Global DL | QLIKE |
-|---|---|---:|
-| BTC | Global MLP-30d | 3.751286 |
-| ETH | Global LSTM-14d | 5.195097 |
-| SOL | Global GRU-7d | 2.820048 |
-| XRP | Global LSTM-14d | 4.802991 |
-
-The primary experiment therefore provides little evidence that the tested DL architectures improve QLIKE relative to the strongest ARCH/baseline alternatives.
-
----
-
-# Rolling-30 Robustness Results
-
-Best model by validation QLIKE:
-
-| Asset | Winning Model | QLIKE |
-|---|---|---:|
-| BTC | GARCH(1,1) | 0.002567 |
-| ETH | GARCH(1,1) | 0.003161 |
-| SOL | GARCH(1,1) | 0.002666 |
-| XRP | EGARCH(1,1) | 0.004998 |
-
-ARCH-family models therefore win **all four assets** under the alternative volatility definition.
-
-### Best Global DL
-
-Global GRU-7d is the strongest Global DL specification for every asset:
-
-| Asset | Global GRU-7d QLIKE |
-|---|---:|
-| BTC | 0.004830 |
-| ETH | 0.005485 |
-| SOL | 0.005077 |
-| XRP | 0.010544 |
-
-### Persistence Benchmark
-
-| Asset | Rolling-30 Persistence QLIKE |
-|---|---:|
-| BTC | 0.004915 |
-| ETH | 0.005222 |
-| SOL | 0.004887 |
-| XRP | 0.009537 |
-
-Global GRU slightly improves over persistence for BTC, while persistence remains stronger for ETH, SOL and XRP.
-
----
-
-# Robustness Conclusion
-
-Across the two target definitions there are eight asset-target combinations.
-
-ARCH-family models win **7 of 8**.
-
-The only exception is ETH under the primary squared-return target, where the 30-day historical-mean baseline narrowly beats GARCH.
-
-Winning-family stability:
-
-| Asset | Primary Target | Rolling-30 Target | Stable? |
-|---|---|---|---|
-| BTC | ARCH | ARCH | Yes |
-| ETH | Baseline | ARCH | No |
-| SOL | ARCH | ARCH | Yes |
-| XRP | ARCH | ARCH | Yes |
-
-Thus the winning model family is unchanged for **3 of 4 assets**, and the broad conclusion that conditional-volatility models outperform the tested deep-learning approaches is robust to the alternative volatility definition.
-
-The rolling-30 experiment also demonstrates that the conclusion is not solely driven by the noisiness of \(r_t^2\).
-
----
-
-# Important Interpretation Note
-
-QLIKE values from the two target definitions should **not** be compared directly.
-
-For example, a rolling-30 QLIKE of `0.003` is not evidence that the model is hundreds of times more accurate than a squared-return model with QLIKE near `1.8`.
-
-The rolling-30 target is much smoother because adjacent targets share 29 of 30 return observations.
-
-Cross-target conclusions should therefore be based on:
-
-- model rankings;
-- winning model families;
-- within-target relative performance;
-- robustness of conclusions.
-
----
-
-# Repository Workflow
-
-A typical execution order is:
-
-## Primary Experiment
-
-1. **Data Creation**  
-   Pull daily Binance data for BTC, ETH, SOL and XRP.
-
-2. **Daily Data Processing**  
-   Calculate returns, variance proxy, features, sequences and leakage-safe splits.
-
-3. **Baselines**  
-   Persistence, 7-day mean and 30-day mean.
-
-4. **EDA / ARCH Diagnostics**  
-   Return-distribution and volatility-dependence analysis.
-
-5. **ARCH Training / Validation**  
-   GARCH, GJR-GARCH and EGARCH.
-
-6. **MLP**  
-   BTC 7d / 14d / 30d.
-
-7. **GRU**  
-   BTC 7d / 14d / 30d.
-
-8. **LSTM**  
-   BTC 7d / 14d / 30d.
-
-9. **Global Multi-Asset Models**  
-   Selected MLP / GRU / LSTM specifications across all four assets.
-
-10. **Final Primary Comparison**  
-    Combine ARCH, DL and baseline validation metrics.
-
-## Robustness Experiment
-
-11. **Rolling-30 Data Processing**  
-    `09_Rolling30_Data_Processing.ipynb`
-
-12. **Rolling-30 ARCH Models**  
-    `10_Rolling30_ARCH_Models.ipynb`
-
-13. **Rolling-30 DL Models**  
-    `11_Rolling30_DL_Models.ipynb`
-
-14. **Final Robustness Comparison**  
-    `12_Final_Robustness_Comparison.ipynb`
-
----
-
-# Suggested Repository Structure
+### MAE
 
 ```text
-.
-├── notebooks/
-│   ├── primary/
-│   │   ├── data_creation/
-│   │   ├── data_processing/
-│   │   ├── baselines/
-│   │   ├── arch/
-│   │   ├── mlp/
-│   │   ├── gru/
-│   │   ├── lstm/
-│   │   ├── global_models/
-│   │   └── final_comparison/
-│   │
-│   └── robustness/
-│       ├── 09_Rolling30_Data_Processing.ipynb
-│       ├── 10_Rolling30_ARCH_Models.ipynb
-│       ├── 11_Rolling30_DL_Models.ipynb
-│       └── 12_Final_Robustness_Comparison.ipynb
-│
-├── data/
-│   ├── raw/
-│   └── model_ready/
-│
-├── results/
-│   ├── primary/
-│   └── rolling30_historical_variance/
-│
-├── models/
-├── manifests/
-└── README.md
+MAE = mean(|y - y_hat|)
 ```
 
-Large raw datasets, trained neural-network files and intermediate arrays do not necessarily need to be committed to GitHub. They can be regenerated using the notebooks.
-
----
-
-# Running the Project
-
-The notebooks were developed for **Google Colab** and use a Google Drive project root similar to:
-
-```python
-/content/drive/MyDrive/Quant Research
-```
-
-If running locally or from another Drive location, update the project root paths in the notebooks.
-
-## Main Python Dependencies
+### RMSE
 
 ```text
-numpy
-pandas
-scikit-learn
-tensorflow
-arch
-joblib
-matplotlib
-pyarrow
-openpyxl
-requests
+RMSE = sqrt(mean((y - y_hat)^2))
 ```
 
-Install additional notebook-specific dependencies where required.
+### QLIKE
+
+```text
+QLIKE = mean(y/y_hat - log(y/y_hat) - 1)
+```
+
+QLIKE is evaluated on the positive variance scale and is the primary ranking metric.
+
+The project deliberately keeps MAE and RMSE as supporting metrics because a smooth model can achieve low MAE while still being poorly calibrated for variance spikes.
 
 ---
 
-# Reproducibility
+# Primary Validation Results
 
-The project uses:
+Best Global DL model by asset:
 
-- fixed temporal splits;
-- fixed model seeds where supported;
-- train-only feature scaling;
-- deterministic sequence construction;
-- explicit dataset configuration files;
-- saved validation predictions and metrics;
-- data manifests;
-- model-specific result directories.
+| Asset | Best Global DL | Validation QLIKE |
+|---|---|---:|
+| BTC | MLP 30D | 3.7513 |
+| ETH | LSTM 14D | 5.1951 |
+| SOL | GRU 7D | 2.8200 |
+| XRP | LSTM 14D | 4.8030 |
 
-The robustness pipeline is stored separately from the primary pipeline so alternative-target artifacts do not overwrite the original results.
+The ARCH family materially outperformed Global DL under QLIKE.
 
----
-
-# Current Research Takeaway
-
-The empirical evidence from this project favors **parsimonious conditional-volatility models** over the tested deep-learning architectures for one-day-ahead crypto volatility forecasting.
-
-Key observations are:
-
-1. GARCH-family models are consistently strong under QLIKE.
-2. Neural models can obtain competitive or lower MAE in some cases while still performing poorly under QLIKE.
-3. Pooling multiple crypto assets improves some DL forecasts, but does not overturn the ARCH advantage.
-4. The same broad result persists under a much smoother 30-day historical-volatility target.
-5. Increased model complexity does not automatically translate into superior volatility forecasts.
-
-This makes the project a useful empirical comparison of **econometric structure versus neural-network flexibility** in cryptocurrency volatility forecasting.
+Among the earlier baselines, ETH's 30-Day Mean RV baseline (`1.855280`) narrowly beat GARCH(1,1) (`1.855979`) on Validation, while ARCH models led the other assets.
 
 ---
 
-# Limitations
+# Final Held-Out Test Results
 
-Important limitations include:
+Notebook 14 evaluates the frozen six-model set on the previously untouched Test period.
 
-- only four cryptocurrencies are considered;
-- the study uses daily data;
-- squared daily returns are a noisy proxy for latent daily variance;
-- the rolling-30 target has strong mechanical overlap across adjacent observations;
-- the DL architecture search is intentionally limited rather than exhaustive;
-- macroeconomic, derivatives, order-book and sentiment variables are not included;
-- the currently documented headline tables are validation results rather than final held-out test estimates.
+## Test QLIKE
+
+| Asset | Winning model | QLIKE |
+|---|---|---:|
+| BTC | GARCH(1,1) | 1.6059 |
+| ETH | GARCH(1,1) | 1.9176 |
+| SOL | EGARCH(1,1) | 1.5935 |
+| XRP | GJR-GARCH(1,1) | 1.8588 |
+
+**An ARCH-family model wins Test QLIKE for all four assets.**
+
+## Test MAE
+
+The ranking changes under MAE:
+
+| Asset | Lowest-MAE model | MAE |
+|---|---|---:|
+| BTC | MLP 30D | 0.000465 |
+| ETH | LSTM 14D | 0.001096 |
+| SOL | GRU 7D | 0.001218 |
+| XRP | MLP 30D | 0.001039 |
+
+DL models therefore achieve the lowest Test MAE for all four assets, while the ARCH family also provides the lowest Test RMSE for all four assets.
+
+This metric split is a central empirical finding: neural forecasts appear smoother and minimize typical absolute error, while ARCH models provide stronger variance calibration and large-error control.
 
 ---
 
-# Potential Extensions
+## Overfitting / Underfitting Interpretation
 
-Possible future work includes:
+There is no broad evidence of classical DL overfitting.
 
-- final evaluation on the untouched test period;
-- higher-frequency realized-volatility measures;
-- HAR-RV and realized-GARCH models;
-- exogenous macro / market / sentiment features;
-- regime-dependent volatility models;
-- transformer-based sequence models;
-- broader cross-asset training universes;
-- probabilistic volatility forecasts and interval calibration.
+For most asset/model combinations, Test QLIKE is similar to or better than Validation QLIKE. Examples:
+
+```text
+BTC MLP   3.751 -> 3.730
+BTC GRU   4.825 -> 3.839
+SOL GRU   2.820 -> 2.438
+XRP MLP   6.106 -> 4.796
+```
+
+The clearest weaker-generalization case is ETH MLP:
+
+```text
+Train QLIKE      4.353
+Validation       5.834
+Test             6.434
+```
+
+This is better described as model/regime sensitivity than project-wide overfitting.
+
+The DL models are also not simply “underfit”: they win MAE on the final Test set. However, their QLIKE is materially worse even on Train. That points to **forecast calibration / objective mismatch** rather than insufficient network capacity. The networks were optimized with MSE on log variance, which naturally encourages smoother forecasts and may underreact to volatility spikes that QLIKE penalizes strongly.
+
+---
+
+# Robustness Analyses
+
+Two distinct robustness exercises were performed.
+
+## A. Rolling-30 Target Retraining — Notebooks 09-12
+
+An exploratory robustness pipeline retrained models using next-day updated 30-day rolling historical variance as the target.
+
+This exercise is valid as an alternative-target experiment and can be retained as supplementary material or an appendix.
+
+However, subsequent supervisor clarification established that the preferred paper robustness check was to **keep the original primary models frozen** and evaluate their forecasts against historical-volatility proxies.
+
+## B. Final Proxy-Based Robustness — Notebook 13
+
+The final supervisor-aligned robustness analysis evaluates the original frozen forecasts against ex-post historical volatility:
+
+```text
+HV_W,t = Std(r_{t-W+1}, ..., r_t)
+```
+
+with:
+
+```text
+W = 7, 14, 30 days
+```
+
+The proxy includes the realized target-day return and is therefore an **evaluation reference only**, not a model feature or predictive baseline.
+
+For the proxy evaluation:
+
+- model variance is square-rooted for volatility-scale MAE/RMSE and time-series figures;
+- QLIKE remains on the variance scale using `HV_W,t^2`.
+
+Across all **12 asset x proxy-horizon combinations**, the best QLIKE model belongs to the ARCH family.
+
+### Best QLIKE model by proxy horizon
+
+| Proxy | BTC | ETH | SOL | XRP |
+|---|---|---|---|---|
+| 7D | GARCH | GARCH | EGARCH | GJR-GARCH |
+| 14D | GARCH | GJR-GARCH | EGARCH | GJR-GARCH |
+| 30D | GJR-GARCH | GJR-GARCH | EGARCH | EGARCH |
+
+This strengthens the main conclusion because ARCH dominance is not tied only to the noisy single-day squared-return proxy.
+
+---
+
+## 30-Day Mean RV vs 30-Day Historical Volatility
+
+These quantities are related but not identical.
+
+30-Day Mean RV is:
+
+```text
+mean(r^2)
+```
+
+whereas historical variance is the sample variance around the rolling mean return:
+
+```text
+s^2 = W/(W-1) * (mean(r^2) - mean(r)^2)
+```
+
+The historical-volatility proxy is `sqrt(s^2)`.
+
+There is also a timing distinction in the forecasting setup: a predictive 30-Day Mean RV baseline for 10 August uses information available through 9 August, while the ex-post 10 August historical-volatility proxy includes the realized 10 August return.
+
+---
+
+# Notebook Workflow
+
+## Primary pipeline
+
+1. `01_Data_Creation_QP.ipynb` — Binance daily OHLCV collection
+2. `01_EDA_Daily.ipynb` — daily-return EDA and diagnostics
+3. `02_data_processing.ipynb` — target/features, sequences, splits and scalers
+4. `03_baseline_model.ipynb` — persistence and rolling-mean baselines
+5. `04_ARCH_models_train.ipynb` — ARCH-family training diagnostics
+6. `04_ARCH_models_validation.ipynb` — validation forecasting and ARCH selection
+7. `04_MLP_model.ipynb` — BTC MLP 7D/14D/30D
+8. `05_GRU_model.ipynb` — BTC GRU 7D/14D/30D
+9. `06_LSTM_model.ipynb` — BTC LSTM 7D/14D/30D
+10. `07_Global_MultiAsset_Models_SelectedLookbacks.ipynb` — pooled MLP-30D / GRU-7D / LSTM-14D
+11. `08_Final_Model_Comparison.ipynb` — primary validation comparison
+
+## Alternative-target robustness
+
+12. `09_Rolling30_Data_Processing.ipynb`
+13. `10_Rolling30_ARCH_Models.ipynb`
+14. `11_Rolling30_DL_Models.ipynb`
+15. `12_Final_Robustness_Comparison.ipynb`
+
+## Final paper robustness and held-out evaluation
+
+16. `13_Primary_Models_vs_Dynamic_Rolling_Volatility_Proxy_FINAL.ipynb` — frozen models evaluated against 7D/14D/30D historical-volatility proxies; dynamic metric tables and figures
+17. `14_All_Models_Train_Validation_Test_Errors_FINAL.ipynb` — final Train/Validation/Test MAE, RMSE and QLIKE; opens the held-out Test period
+
+---
+
+# Recommended Paper Positioning
+
+The final empirical story is:
+
+1. Daily crypto returns are stationary but heavy-tailed and volatility-clustered.
+2. Architecture-specific lookback selection gives MLP-30D, GRU-7D and LSTM-14D.
+3. Global pooling increases the DL training sample but does not overturn the ARCH advantage under QLIKE.
+4. On the final held-out Test set, ARCH-family models win QLIKE and RMSE for all four assets.
+5. DL models win MAE for all four assets, indicating smoother forecasts with lower typical absolute error but weaker variance-risk calibration.
+6. ARCH dominance under QLIKE remains robust when frozen forecasts are evaluated against 7D, 14D and 30D historical-volatility proxies.
+
+The conclusion should therefore emphasize **forecast calibration versus smooth average-error minimization**, rather than presenting the study as a simplistic “ARCH beats deep learning” exercise.
+
+---
+
+# Future Work
+
+Useful extensions include:
+
+- higher-frequency realized-volatility measures rather than daily squared-return proxies;
+- HAR-RV and realized-GARCH benchmarks;
+- derivatives variables such as funding rates, open interest and liquidations;
+- macro, order-book and sentiment features;
+- regime-dependent or state-switching models;
+- probabilistic volatility intervals and calibration;
+- neural models trained directly with a QLIKE-style objective;
+- broader multi-asset universes for pooled learning;
+- transformer or attention-based sequence models.
+
+Because the Test set has now been opened, any future architecture or feature tuning should be treated as a **new experiment with a new holdout period**, not as continued optimization of the current final models.
 
 ---
 
 ## Project Status
 
-**Primary modeling:** complete  
+**Daily data pipeline:** complete  
+**EDA:** complete  
+**Primary ARCH and DL modeling:** complete  
 **Multi-asset modeling:** complete  
-**Rolling-30 robustness analysis:** complete  
 **Validation comparison:** complete  
-**Held-out test evaluation:** reserved / not yet used
+**Rolling-variance exploratory robustness:** complete  
+**7D/14D/30D proxy robustness:** complete  
+**Held-out Test evaluation:** complete  
+**Current modeling project:** closed / ready for paper writing
